@@ -17,6 +17,7 @@ import com.v2ray.ang.BuildConfig
 import com.v2ray.ang.contracts.ServiceControl
 import com.v2ray.ang.contracts.Tun2SocksControl
 import com.v2ray.ang.core.CoreServiceManager
+import com.v2ray.ang.core.TxtEndpointResolver
 import com.v2ray.ang.handler.AppLocaleManager
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.handler.NotificationManager
@@ -144,6 +145,10 @@ class CoreVpnService : VpnService(), ServiceControl {
             return false
         }
 
+        // TXT discovery uses the still-direct network. After establish(), DoH/UDP
+        // would enter the TUN before the core is listening unless the sockets are protected.
+        prefetchTxtEndpoints()
+
         if (configureVpnService() != true) {
             LogUtil.e(AppConfig.TAG, "StartCore-VPN: Configuration failed")
             return false
@@ -151,6 +156,14 @@ class CoreVpnService : VpnService(), ServiceControl {
 
         runTun2socks()
         return true
+    }
+
+    private fun prefetchTxtEndpoints() {
+        val guid = MmkvManager.getSelectServer() ?: return
+        val server = MmkvManager.decodeServerConfig(guid)?.server?.trim().orEmpty()
+        if (server.isNotEmpty()) {
+            TxtEndpointResolver.prefetch(server)
+        }
     }
 
     /**

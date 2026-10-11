@@ -65,6 +65,9 @@ object CoreServiceManager {
             field = value
             val service = value?.get()?.getService()
             CoreNativeManager.initCoreEnv(service)
+            TxtEndpointResolver.fileDescriptorProtector = TxtEndpointResolver.FileDescriptorProtector { fd ->
+                serviceControl?.get()?.vpnProtect(fd) ?: true
+            }
             if (service != null && processFinder == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 processFinder = XrayProcessFinder(service)
                 coreController.registerProcessFinder(processFinder)

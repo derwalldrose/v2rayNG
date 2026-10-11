@@ -24,7 +24,7 @@ object CoreOutboundBuilder {
     /** Dispatches a profile to protocol-specific outbound builder. */
     fun convert(profileItem: ProfileItem): OutboundBean? {
         val endpoint = profileItem.server
-            ?.let(TxtEndpointResolver::resolveWhenAddressMissing)
+            ?.let(TxtEndpointResolver::resolve)
         val outbound = when (profileItem.configType) {
             EConfigType.VMESS -> toOutboundVmess(profileItem, endpoint)
             EConfigType.SHADOWSOCKS -> toOutboundShadowsocks(profileItem, endpoint)
