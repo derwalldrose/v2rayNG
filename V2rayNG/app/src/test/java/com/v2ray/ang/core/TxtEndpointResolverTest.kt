@@ -76,6 +76,16 @@ class TxtEndpointResolverTest {
             records,
         )
         assertTrue(ttl in 1..60)
+        assertEquals(60_000L, TxtEndpointResolver.cacheTtlMs(60))
+        assertEquals(0L, TxtEndpointResolver.cacheTtlMs(0))
+        val endpoint = TxtEndpointResolver.Endpoint("222.116.129.80", 12345)
+        val record = TxtEndpointResolver.formatCachedRecord(endpoint, 1_700_000_060_000L)
+        assertEquals(
+            endpoint,
+            TxtEndpointResolver.parseCachedRecord(record, 1_700_000_000_000L),
+        )
+        assertNull(TxtEndpointResolver.parseCachedRecord(record, 1_700_000_060_000L))
+        assertNull(TxtEndpointResolver.parseCachedRecord("222.116.129.80:12345", 1L))
         assertEquals(
             setOf(
                 TxtEndpointResolver.Endpoint("222.116.129.80", 12345),

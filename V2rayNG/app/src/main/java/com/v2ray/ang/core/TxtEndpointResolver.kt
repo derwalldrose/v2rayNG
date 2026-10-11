@@ -42,7 +42,9 @@ object TxtEndpointResolver {
     @Volatile
     var fileDescriptorProtector: FileDescriptorProtector? = null
 
-    private val cache = ConcurrentHashMap<String, Endpoint>()
+    private data class CachedEntry(val endpoint: Endpoint, val expiresAtMs: Long)
+
+    private val cache = ConcurrentHashMap<String, CachedEntry>()
     private val udpResolvers = listOf("223.5.5.5", "119.29.29.29")
     private val dohResolvers = listOf(
         "https://dns.alidns.com/resolve",
@@ -69,11 +71,11 @@ object TxtEndpointResolver {
         if (normalizedHost.isEmpty() || isIpLiteral(normalizedHost)) return null
         cached(normalizedHost)?.let { return it }
 
-        val queried = queryAll(normalizedHost)
+        val (queried, ttlSeconds) = queryAll(normalizedHost)
         if (queried.isEmpty()) return null
         val endpoint = queried[random.nextInt(queried.size)]
-        persist(normalizedHost, endpoint)
-        LogUtil.i(AppConfig.TAG, "TXT endpoint: first resolve ${endpoint.address}:${endpoint.port}")
+        persist(normalizedHost, endpoint, ttlSeconds)
+        LogUtil.i(AppConfig.TAG, "TXT endpoint: resolved ${endpoint.address}:${endpoint.port} ttl=${ttlSeconds}s")
         return endpoint
     }
 
@@ -144,43 +146,72 @@ object TxtEndpointResolver {
         return records to if (minTtl == Int.MAX_VALUE) 60 else minTtl
     }
 
+    internal fun cacheTtlMs(ttlSeconds: Int): Long = ttlSeconds.coerceAtLeast(0) * 1000L
+
+    internal fun formatCachedRecord(endpoint: Endpoint, expiresAtMs: Long): String =
+        "${formatEndpoint(endpoint)}|$expiresAtMs"
+
+    internal fun parseCachedRecord(value: String, nowMs: Long): Endpoint? {
+        val separator = value.lastIndexOf('|')
+        if (separator <= 0 || separator == value.lastIndex) return null
+        val expiresAtMs = value.substring(separator + 1).toLongOrNull() ?: return null
+        if (expiresAtMs <= nowMs) return null
+        return parseEndpoint(value.substring(0, separator))
+    }
+
     private fun cached(host: String): Endpoint? {
-        cache[host]?.let { return it }
+        val now = System.currentTimeMillis()
+        cache[host]?.let { entry ->
+            if (entry.expiresAtMs > now) return entry.endpoint
+            cache.remove(host)
+        }
         val persisted = runCatching {
             MmkvManager.decodeSettingsString(CACHE_KEY_PREFIX + host)
-        }.getOrNull()
-        val endpoint = persisted?.let(::parseEndpoint) ?: return null
-        cache[host] = endpoint
+        }.getOrNull() ?: return null
+        val endpoint = parseCachedRecord(persisted, now)
+        if (endpoint == null) {
+            runCatching { MmkvManager.encodeSettings(CACHE_KEY_PREFIX + host, null as String?) }
+            return null
+        }
+        val expiresAtMs = persisted.substringAfterLast('|').toLongOrNull() ?: return endpoint
+        cache[host] = CachedEntry(endpoint, expiresAtMs)
         return endpoint
     }
 
-    private fun persist(host: String, endpoint: Endpoint) {
-        cache[host] = endpoint
+    private fun persist(host: String, endpoint: Endpoint, ttlSeconds: Int) {
+        val ttlMs = cacheTtlMs(ttlSeconds)
+        if (ttlMs <= 0L) {
+            cache.remove(host)
+            runCatching { MmkvManager.encodeSettings(CACHE_KEY_PREFIX + host, null as String?) }
+            return
+        }
+        val entry = CachedEntry(endpoint, System.currentTimeMillis() + ttlMs)
+        cache[host] = entry
         runCatching {
-            MmkvManager.encodeSettings(CACHE_KEY_PREFIX + host, formatEndpoint(endpoint))
+            MmkvManager.encodeSettings(CACHE_KEY_PREFIX + host, formatCachedRecord(endpoint, entry.expiresAtMs))
         }
     }
 
-    private fun queryAll(host: String): List<Endpoint> {
+    private fun queryAll(host: String): Pair<List<Endpoint>, Int> {
         for (server in udpResolvers) {
             try {
-                val (records, _) = queryUdpTxt(server, host)
+                val (records, ttl) = queryUdpTxt(server, host)
                 val endpoints = parseEndpoints(records)
-                if (endpoints.isNotEmpty()) return endpoints
+                if (endpoints.isNotEmpty()) return endpoints to ttl
             } catch (e: Exception) {
                 LogUtil.e(AppConfig.TAG, "TXT endpoint: UDP resolver failed", e)
             }
         }
         for (resolver in dohResolvers) {
             try {
-                val (records, _) = queryDohTxt(resolver, host)
+                val (records, ttl) = queryDohTxt(resolver, host)
                 val endpoints = parseEndpoints(records)
-                if (endpoints.isNotEmpty()) return endpoints
+                if (endpoints.isNotEmpty()) return endpoints to ttl
             } catch (e: Exception) {
                 LogUtil.e(AppConfig.TAG, "TXT endpoint: DoH resolver failed", e)
             }
         }
-        return emptyList()
+        return emptyList<Endpoint>() to 0
     }
 
     private fun queryUdpTxt(server: String, host: String): Pair<List<String>, Int> {
