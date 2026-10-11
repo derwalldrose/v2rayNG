@@ -88,6 +88,21 @@ object TxtEndpointResolver {
         return value.isNotEmpty() && !isIpLiteral(value)
     }
 
+    fun resolvedDial(host: String?, port: String?): Pair<String, Int>? {
+        val profilePort = port?.toIntOrNull() ?: return null
+        val server = host?.trim().orEmpty()
+        if (server.isEmpty()) return null
+        val endpoint = if (prefersTxt(server)) resolve(server) else null
+        return pickDial(server, profilePort, endpoint)
+    }
+
+    internal fun pickDial(
+        host: String,
+        profilePort: Int,
+        endpoint: Endpoint?,
+    ): Pair<String, Int> =
+        if (endpoint != null) endpoint.address to endpoint.port else host to profilePort
+
     internal fun formatEndpoint(endpoint: Endpoint): String =
         if (endpoint.address.contains(':')) "[${endpoint.address}]:${endpoint.port}"
         else "${endpoint.address}:${endpoint.port}"

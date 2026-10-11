@@ -3,6 +3,7 @@ package com.v2ray.ang.service
 import android.content.Context
 import com.v2ray.ang.core.CoreConfigManager
 import com.v2ray.ang.core.CoreNativeManager
+import com.v2ray.ang.core.TxtEndpointResolver
 import com.v2ray.ang.dto.RealPingEvent
 import com.v2ray.ang.enums.EConfigType
 import com.v2ray.ang.extension.isComplexType
@@ -115,9 +116,8 @@ class RealPingWorkerService(
             && config.server.isNotNullEmpty()
             && config.serverPort?.toIntOrNull() != null
         ) {
-            val url = config.server.orEmpty()
-            val port = config.serverPort.orEmpty().toInt()
-            val tcpTime = SpeedtestManager.socketConnectTime(url, port, 1000)
+            val dial = TxtEndpointResolver.resolvedDial(config.server, config.serverPort) ?: return retFailure
+            val tcpTime = SpeedtestManager.socketConnectTime(dial.first, dial.second, 1000)
             if (tcpTime <= -1L) {
                 return retFailure
             }
@@ -143,11 +143,8 @@ class RealPingWorkerService(
             && config.server.isNotNullEmpty()
             && config.serverPort?.toIntOrNull() != null
         ) {
-            val url = config.server.orEmpty()
-            val port = config.serverPort.orEmpty().toInt()
-            val tcpTime = SpeedtestManager.socketConnectTime(url, port, 1000)
-
-            return tcpTime
+            val dial = TxtEndpointResolver.resolvedDial(config.server, config.serverPort) ?: return retFailure
+            return SpeedtestManager.socketConnectTime(dial.first, dial.second, 1000)
         }
 
         return retFailure

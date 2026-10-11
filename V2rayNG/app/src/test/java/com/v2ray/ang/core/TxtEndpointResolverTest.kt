@@ -104,6 +104,22 @@ class TxtEndpointResolverTest {
         assertFalse(TxtEndpointResolver.prefersTxt("2001:db8::1"))
         assertFalse(TxtEndpointResolver.prefersTxt("[2001:db8::1]"))
         assertFalse(TxtEndpointResolver.prefersTxt(""))
+        assertEquals(
+            "222.116.129.80" to 12345,
+            TxtEndpointResolver.pickDial(
+                "kr.270376.xyz",
+                443,
+                TxtEndpointResolver.Endpoint("222.116.129.80", 12345),
+            ),
+        )
+        assertEquals(
+            "kr.270376.xyz" to 443,
+            TxtEndpointResolver.pickDial("kr.270376.xyz", 443, null),
+        )
+        assertEquals(
+            "222.111.210.67" to 10000,
+            TxtEndpointResolver.pickDial("222.111.210.67", 10000, null),
+        )
     }
 
     private fun hexToBytes(hex: String): ByteArray {
