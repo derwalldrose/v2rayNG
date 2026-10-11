@@ -79,6 +79,15 @@ jobs:
           ./gradlew :app:testPlaystoreDebugUnitTest --tests com.v2ray.ang.core.TxtEndpointResolverTest
           ./gradlew :app:testPlaystoreDebugUnitTest :app:compilePlaystoreDebugKotlin :app:assemblePlaystoreDebug
 
+      - name: Verify coexistence package
+        working-directory: V2rayNG
+        run: |
+          APK=$(find app/build/outputs/apk/playstore/debug -name '*universal*.apk' -print -quit)
+          test -n "$APK"
+          "$ANDROID_HOME/build-tools/37.0.0/aapt" dump badging "$APK" | tee "$RUNNER_TEMP/apk-badging.txt"
+          grep -F "package: name='com.v2ray.ang.txtentry'" "$RUNNER_TEMP/apk-badging.txt"
+          grep -F "application-label:'v2rayNG TXT'" "$RUNNER_TEMP/apk-badging.txt"
+
       - name: Upload APKs
         uses: actions/upload-artifact@v7
         with:
