@@ -23,15 +23,17 @@ object CoreOutboundBuilder {
 
     /** Dispatches a profile to protocol-specific outbound builder. */
     fun convert(profileItem: ProfileItem): OutboundBean? {
+        val endpoint = profileItem.server
+            ?.let(TxtEndpointResolver::resolveWhenAddressMissing)
         val outbound = when (profileItem.configType) {
-            EConfigType.VMESS -> toOutboundVmess(profileItem)
-            EConfigType.SHADOWSOCKS -> toOutboundShadowsocks(profileItem)
-            EConfigType.SOCKS -> toOutboundSocks(profileItem)
-            EConfigType.VLESS -> toOutboundVless(profileItem)
-            EConfigType.TROJAN -> toOutboundTrojan(profileItem)
-            EConfigType.WIREGUARD -> toOutboundWireguard(profileItem)
-            EConfigType.HYSTERIA2 -> toOutboundHysteria2(profileItem)
-            EConfigType.HTTP -> toOutboundHttp(profileItem)
+            EConfigType.VMESS -> toOutboundVmess(profileItem, endpoint)
+            EConfigType.SHADOWSOCKS -> toOutboundShadowsocks(profileItem, endpoint)
+            EConfigType.SOCKS -> toOutboundSocks(profileItem, endpoint)
+            EConfigType.VLESS -> toOutboundVless(profileItem, endpoint)
+            EConfigType.TROJAN -> toOutboundTrojan(profileItem, endpoint)
+            EConfigType.WIREGUARD -> toOutboundWireguard(profileItem, endpoint)
+            EConfigType.HYSTERIA2 -> toOutboundHysteria2(profileItem, endpoint)
+            EConfigType.HTTP -> toOutboundHttp(profileItem, endpoint)
             else -> null
         }
 
@@ -114,12 +116,12 @@ object CoreOutboundBuilder {
 
     // ── Per-protocol builders — implementations are identical to each *Fmt.toOutbound ──
 
-    private fun toOutboundVmess(profileItem: ProfileItem): OutboundBean? {
+    private fun toOutboundVmess(profileItem: ProfileItem, endpoint: TxtEndpointResolver.Endpoint?): OutboundBean? {
         val outboundBean = createInitOutbound(EConfigType.VMESS)
 
         outboundBean?.settings?.let { settings ->
-            settings.address = getServerAddress(profileItem)
-            settings.port = profileItem.serverPort.orEmpty().toInt()
+            settings.address = getServerAddress(profileItem, endpoint)
+            settings.port = getServerPort(profileItem, endpoint)
             settings.id = profileItem.password.orEmpty()
             settings.security = profileItem.method
             settings.level = AppConfig.DEFAULT_LEVEL
@@ -136,12 +138,12 @@ object CoreOutboundBuilder {
         return outboundBean
     }
 
-    private fun toOutboundVless(profileItem: ProfileItem): OutboundBean? {
+    private fun toOutboundVless(profileItem: ProfileItem, endpoint: TxtEndpointResolver.Endpoint?): OutboundBean? {
         val outboundBean = createInitOutbound(EConfigType.VLESS)
 
         outboundBean?.settings?.let { settings ->
-            settings.address = getServerAddress(profileItem)
-            settings.port = profileItem.serverPort.orEmpty().toInt()
+            settings.address = getServerAddress(profileItem, endpoint)
+            settings.port = getServerPort(profileItem, endpoint)
             settings.id = profileItem.password.orEmpty()
             settings.encryption = profileItem.method
             settings.flow = profileItem.flow
@@ -159,12 +161,12 @@ object CoreOutboundBuilder {
         return outboundBean
     }
 
-    private fun toOutboundShadowsocks(profileItem: ProfileItem): OutboundBean? {
+    private fun toOutboundShadowsocks(profileItem: ProfileItem, endpoint: TxtEndpointResolver.Endpoint?): OutboundBean? {
         val outboundBean = createInitOutbound(EConfigType.SHADOWSOCKS)
 
         outboundBean?.settings?.let { settings ->
-            settings.address = getServerAddress(profileItem)
-            settings.port = profileItem.serverPort.orEmpty().toInt()
+            settings.address = getServerAddress(profileItem, endpoint)
+            settings.port = getServerPort(profileItem, endpoint)
             settings.password = profileItem.password
             settings.method = profileItem.method
             settings.level = AppConfig.DEFAULT_LEVEL
@@ -181,12 +183,12 @@ object CoreOutboundBuilder {
         return outboundBean
     }
 
-    private fun toOutboundTrojan(profileItem: ProfileItem): OutboundBean? {
+    private fun toOutboundTrojan(profileItem: ProfileItem, endpoint: TxtEndpointResolver.Endpoint?): OutboundBean? {
         val outboundBean = createInitOutbound(EConfigType.TROJAN)
 
         outboundBean?.settings?.let { settings ->
-            settings.address = getServerAddress(profileItem)
-            settings.port = profileItem.serverPort.orEmpty().toInt()
+            settings.address = getServerAddress(profileItem, endpoint)
+            settings.port = getServerPort(profileItem, endpoint)
             settings.password = profileItem.password
             settings.flow = profileItem.flow
             settings.level = AppConfig.DEFAULT_LEVEL
@@ -203,12 +205,12 @@ object CoreOutboundBuilder {
         return outboundBean
     }
 
-    private fun toOutboundSocks(profileItem: ProfileItem): OutboundBean? {
+    private fun toOutboundSocks(profileItem: ProfileItem, endpoint: TxtEndpointResolver.Endpoint?): OutboundBean? {
         val outboundBean = createInitOutbound(EConfigType.SOCKS)
 
         outboundBean?.settings?.let { settings ->
-            settings.address = getServerAddress(profileItem)
-            settings.port = profileItem.serverPort.orEmpty().toInt()
+            settings.address = getServerAddress(profileItem, endpoint)
+            settings.port = getServerPort(profileItem, endpoint)
             settings.level = AppConfig.DEFAULT_LEVEL
             if (profileItem.username.isNotNullEmpty()) {
                 settings.user = profileItem.username.orEmpty()
@@ -219,12 +221,12 @@ object CoreOutboundBuilder {
         return outboundBean
     }
 
-    private fun toOutboundHttp(profileItem: ProfileItem): OutboundBean? {
+    private fun toOutboundHttp(profileItem: ProfileItem, endpoint: TxtEndpointResolver.Endpoint?): OutboundBean? {
         val outboundBean = createInitOutbound(EConfigType.HTTP)
 
         outboundBean?.settings?.let { settings ->
-            settings.address = getServerAddress(profileItem)
-            settings.port = profileItem.serverPort.orEmpty().toInt()
+            settings.address = getServerAddress(profileItem, endpoint)
+            settings.port = getServerPort(profileItem, endpoint)
             settings.level = AppConfig.DEFAULT_LEVEL
             if (profileItem.username.isNotNullEmpty()) {
                 settings.user = profileItem.username.orEmpty()
@@ -235,7 +237,7 @@ object CoreOutboundBuilder {
         return outboundBean
     }
 
-    private fun toOutboundWireguard(profileItem: ProfileItem): OutboundBean? {
+    private fun toOutboundWireguard(profileItem: ProfileItem, endpoint: TxtEndpointResolver.Endpoint?): OutboundBean? {
         val outboundBean = createInitOutbound(EConfigType.WIREGUARD)
 
         val rawAddresses = profileItem.localAddress
@@ -273,7 +275,7 @@ object CoreOutboundBuilder {
             wireguard.peers?.firstOrNull()?.let { peer ->
                 peer.publicKey = profileItem.publicKey.orEmpty()
                 peer.preSharedKey = profileItem.preSharedKey?.nullIfBlank()
-                peer.endpoint = Utils.getIpv6Address(profileItem.server) + ":${profileItem.serverPort}"
+                peer.endpoint = Utils.getIpv6Address(endpoint?.address ?: profileItem.server) + ":${endpoint?.port ?: profileItem.serverPort}"
             }
             wireguard.mtu = profileItem.mtu
             wireguard.remoteDNS = remotes
@@ -290,14 +292,14 @@ object CoreOutboundBuilder {
         return outboundBean
     }
 
-    private fun toOutboundHysteria2(profileItem: ProfileItem): OutboundBean? {
+    private fun toOutboundHysteria2(profileItem: ProfileItem, endpoint: TxtEndpointResolver.Endpoint?): OutboundBean? {
         val outboundBean = createInitOutbound(EConfigType.HYSTERIA2) ?: return null
         profileItem.network = NetworkType.HYSTERIA.type
         profileItem.alpn = "h3"
 
         outboundBean.settings?.let { server ->
-            server.address = getServerAddress(profileItem)
-            server.port = profileItem.serverPort.orEmpty().toInt()
+            server.address = getServerAddress(profileItem, endpoint)
+            server.port = getServerPort(profileItem, endpoint)
             server.version = 2
         }
 
@@ -677,7 +679,8 @@ object CoreOutboundBuilder {
         return true
     }
 
-    private fun getServerAddress(profileItem: ProfileItem): String {
+    private fun getServerAddress(profileItem: ProfileItem, endpoint: TxtEndpointResolver.Endpoint?): String {
+        endpoint?.let { return it.address }
         if (Utils.isPureIpAddress(profileItem.server.orEmpty())) {
             return profileItem.server.orEmpty()
         }
@@ -693,6 +696,9 @@ object CoreOutboundBuilder {
         }
         return resolvedIps.first()
     }
+
+    private fun getServerPort(profileItem: ProfileItem, endpoint: TxtEndpointResolver.Endpoint?): Int =
+        endpoint?.port ?: profileItem.serverPort.orEmpty().toInt()
 
     fun updateOutboundFinalMask(streamSettings: OutboundBean.StreamSettingsBean, profileItem: ProfileItem) {
         val finalMask = profileItem.finalMask

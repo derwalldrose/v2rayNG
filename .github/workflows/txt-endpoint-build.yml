@@ -1,0 +1,87 @@
+name: TXT Endpoint APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/txt-dynamic-endpoint
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          log-accepted-android-sdk-licenses: false
+          cmdline-tools-version: '14742923'
+          packages: 'platforms;android-37.0 build-tools;37.0.0 platform-tools'
+
+      - name: Install NDK
+        run: |
+          echo "y" | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            --channel=0 \
+            --install "ndk;30.0.16248370"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/30.0.16248370" >> "$GITHUB_ENV"
+          sed -i '10i\
+          \
+              ndkVersion = "30.0.16248370"' V2rayNG/app/build.gradle.kts
+
+      - name: Restore libhevtun cache
+        id: cache-libhevtun
+        uses: actions/cache@v5
+        with:
+          path: libs
+          key: libhevtun-${{ runner.os }}-${{ hashFiles('.git/modules/hev-socks5-tunnel/HEAD', 'compile-hevtun.sh') }}
+
+      - name: Build libhevtun
+        if: steps.cache-libhevtun.outputs.cache-hit != 'true'
+        run: bash compile-hevtun.sh
+
+      - name: Copy libhevtun
+        run: cp -r libs V2rayNG/app
+
+      - name: Find AndroidLibXrayLite release
+        run: |
+          CURRENT_TAG=$(git -C AndroidLibXrayLite describe --tags --abbrev=0)
+          echo "CURRENT_TAG=$CURRENT_TAG" >> "$GITHUB_ENV"
+
+      - name: Download libv2ray
+        uses: robinraju/release-downloader@v1.13
+        with:
+          repository: 2dust/AndroidLibXrayLite
+          tag: ${{ env.CURRENT_TAG }}
+          fileName: libv2ray.aar
+          out-file-path: V2rayNG/app/libs/
+
+      - name: Setup Java
+        uses: actions/setup-java@v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Test and build debug APK
+        working-directory: V2rayNG
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          chmod 755 gradlew
+          ./gradlew :app:testPlaystoreDebugUnitTest --tests com.v2ray.ang.core.TxtEndpointResolverTest
+          ./gradlew :app:testPlaystoreDebugUnitTest :app:compilePlaystoreDebugKotlin :app:assemblePlaystoreDebug
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v7
+        with:
+          name: v2rayNG-txt-endpoint-debug
+          path: V2rayNG/app/build/outputs/apk/playstore/debug/*.apk
+          if-no-files-found: error
