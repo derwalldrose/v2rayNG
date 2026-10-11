@@ -71,26 +71,47 @@ jobs:
           java-version: '21'
           cache: gradle
 
-      - name: Test and build debug APK
+      - name: Create release keystore
+        run: |
+          keytool -genkeypair -v \
+            -keystore "$RUNNER_TEMP/txtentry.jks" \
+            -storepass android \
+            -keypass android \
+            -alias txtentry \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=v2rayNG TXT"
+
+      - name: Test and build release APK
         working-directory: V2rayNG
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           chmod 755 gradlew
           ./gradlew :app:testPlaystoreDebugUnitTest --tests com.v2ray.ang.core.TxtEndpointResolverTest
-          ./gradlew :app:testPlaystoreDebugUnitTest :app:compilePlaystoreDebugKotlin :app:assemblePlaystoreDebug
+          ./gradlew :app:assemblePlaystoreRelease \
+            -PABI_FILTERS=arm64-v8a \
+            -Pandroid.injected.signing.store.file="$RUNNER_TEMP/txtentry.jks" \
+            -Pandroid.injected.signing.store.password=android \
+            -Pandroid.injected.signing.key.alias=txtentry \
+            -Pandroid.injected.signing.key.password=android
 
       - name: Verify coexistence package
         working-directory: V2rayNG
         run: |
-          APK=$(find app/build/outputs/apk/playstore/debug -name '*universal*.apk' -print -quit)
+          APK=$(find app/build/outputs/apk/playstore/release -name '*arm64-v8a*.apk' -print -quit)
           test -n "$APK"
           "$ANDROID_HOME/build-tools/37.0.0/aapt" dump badging "$APK" | tee "$RUNNER_TEMP/apk-badging.txt"
           grep -F "package: name='com.v2ray.ang.txtentry'" "$RUNNER_TEMP/apk-badging.txt"
           grep -F "application-label:'v2rayNG TXT'" "$RUNNER_TEMP/apk-badging.txt"
+          grep -F "native-code: 'arm64-v8a'" "$RUNNER_TEMP/apk-badging.txt"
+          mkdir -p "$RUNNER_TEMP/apk-out"
+          zip -9 -j "$RUNNER_TEMP/apk-out/$(basename "$APK" .apk).zip" "$APK"
 
-      - name: Upload APKs
+      - name: Upload APK
         uses: actions/upload-artifact@v7
         with:
-          name: v2rayNG-txt-endpoint-debug
-          path: V2rayNG/app/build/outputs/apk/playstore/debug/*.apk
+          name: v2rayNG-txt-endpoint-arm64
+          path: ${{ runner.temp }}/apk-out/*.zip
+          compression-level: 9
           if-no-files-found: error

@@ -39,8 +39,12 @@ class TxtEndpointResolverTest {
             TxtEndpointResolver.unwrapTxtPayload("\"222.111.210.67:10000\""),
         )
         assertEquals(
-            TxtEndpointResolver.Endpoint("222.111.210.67", 10000),
-            TxtEndpointResolver.parseEndpoint("\"222.111.210.67:10000\""),
+            "222.116.129.80:12345",
+            TxtEndpointResolver.formatEndpoint(TxtEndpointResolver.Endpoint("222.116.129.80", 12345)),
+        )
+        assertEquals(
+            "[2001:db8::1]:8443",
+            TxtEndpointResolver.formatEndpoint(TxtEndpointResolver.Endpoint("2001:db8::1", 8443)),
         )
     }
 

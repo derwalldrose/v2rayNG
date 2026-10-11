@@ -1,6 +1,7 @@
 package com.v2ray.ang.core
 
 import com.v2ray.ang.AppConfig
+import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.util.JsonUtil
 import com.v2ray.ang.util.LogUtil
 import okhttp3.Dns
@@ -35,15 +36,13 @@ object TxtEndpointResolver {
     private const val QUERY_TIMEOUT_SECONDS = 3L
     private const val TXT_RECORD_TYPE = 16
     private const val DNS_CLASS_IN = 1
-    private const val CACHE_CAP_MS = 300_000L
+    private const val CACHE_KEY_PREFIX = "txt_endpoint_cache_"
     private val random = SecureRandom()
 
     @Volatile
     var fileDescriptorProtector: FileDescriptorProtector? = null
 
-    private data class CachedEndpoints(val endpoints: List<Endpoint>, val expiresAtMs: Long)
-
-    private val cache = ConcurrentHashMap<String, CachedEndpoints>()
+    private val cache = ConcurrentHashMap<String, Endpoint>()
     private val udpResolvers = listOf("223.5.5.5", "119.29.29.29")
     private val dohResolvers = listOf(
         "https://dns.alidns.com/resolve",
@@ -59,27 +58,28 @@ object TxtEndpointResolver {
     )
 
     fun prefetch(host: String) {
-        resolve(host)
+        val normalizedHost = host.trim().removeSuffix(".")
+        if (normalizedHost.isEmpty() || isIpLiteral(normalizedHost)) return
+        if (cached(normalizedHost) != null) return
+        resolve(normalizedHost)
     }
 
     fun resolve(host: String): Endpoint? {
         val normalizedHost = host.trim().removeSuffix(".")
         if (normalizedHost.isEmpty() || isIpLiteral(normalizedHost)) return null
-
-        val now = System.currentTimeMillis()
-        cache[normalizedHost]?.let { cached ->
-            if (cached.expiresAtMs > now && cached.endpoints.isNotEmpty()) {
-                return cached.endpoints[random.nextInt(cached.endpoints.size)]
-            }
-        }
+        cached(normalizedHost)?.let { return it }
 
         val queried = queryAll(normalizedHost)
-        if (queried.endpoints.isEmpty()) return null
-        cache[normalizedHost] = queried
-        val endpoint = queried.endpoints[random.nextInt(queried.endpoints.size)]
-        LogUtil.i(AppConfig.TAG, "TXT endpoint: resolved host to ${endpoint.address}:${endpoint.port}")
+        if (queried.isEmpty()) return null
+        val endpoint = queried[random.nextInt(queried.size)]
+        persist(normalizedHost, endpoint)
+        LogUtil.i(AppConfig.TAG, "TXT endpoint: first resolve ${endpoint.address}:${endpoint.port}")
         return endpoint
     }
+
+    internal fun formatEndpoint(endpoint: Endpoint): String =
+        if (endpoint.address.contains(':')) "[${endpoint.address}]:${endpoint.port}"
+        else "${endpoint.address}:${endpoint.port}"
 
     internal fun parseEndpoints(records: List<String>): List<Endpoint> =
         records.mapNotNull(::parseEndpoint).distinct()
@@ -144,30 +144,43 @@ object TxtEndpointResolver {
         return records to if (minTtl == Int.MAX_VALUE) 60 else minTtl
     }
 
-    private fun queryAll(host: String): CachedEndpoints {
+    private fun cached(host: String): Endpoint? {
+        cache[host]?.let { return it }
+        val persisted = runCatching {
+            MmkvManager.decodeSettingsString(CACHE_KEY_PREFIX + host)
+        }.getOrNull()
+        val endpoint = persisted?.let(::parseEndpoint) ?: return null
+        cache[host] = endpoint
+        return endpoint
+    }
+
+    private fun persist(host: String, endpoint: Endpoint) {
+        cache[host] = endpoint
+        runCatching {
+            MmkvManager.encodeSettings(CACHE_KEY_PREFIX + host, formatEndpoint(endpoint))
+        }
+    }
+
+    private fun queryAll(host: String): List<Endpoint> {
         for (server in udpResolvers) {
             try {
-                val (records, ttl) = queryUdpTxt(server, host)
+                val (records, _) = queryUdpTxt(server, host)
                 val endpoints = parseEndpoints(records)
-                if (endpoints.isNotEmpty()) {
-                    return CachedEndpoints(endpoints, expiry(ttl))
-                }
+                if (endpoints.isNotEmpty()) return endpoints
             } catch (e: Exception) {
                 LogUtil.e(AppConfig.TAG, "TXT endpoint: UDP resolver failed", e)
             }
         }
         for (resolver in dohResolvers) {
             try {
-                val (records, ttl) = queryDohTxt(resolver, host)
+                val (records, _) = queryDohTxt(resolver, host)
                 val endpoints = parseEndpoints(records)
-                if (endpoints.isNotEmpty()) {
-                    return CachedEndpoints(endpoints, expiry(ttl))
-                }
+                if (endpoints.isNotEmpty()) return endpoints
             } catch (e: Exception) {
                 LogUtil.e(AppConfig.TAG, "TXT endpoint: DoH resolver failed", e)
             }
         }
-        return CachedEndpoints(emptyList(), 0L)
+        return emptyList()
     }
 
     private fun queryUdpTxt(server: String, host: String): Pair<List<String>, Int> {
@@ -295,11 +308,6 @@ object TxtEndpointResolver {
             val fd = pfdClass.getMethod("getFd").invoke(pfd) as Int
             protector.protect(fd)
         }
-    }
-
-    private fun expiry(ttlSeconds: Int): Long {
-        val ttlMs = ttlSeconds.coerceIn(30, 300) * 1000L
-        return System.currentTimeMillis() + ttlMs.coerceAtMost(CACHE_CAP_MS)
     }
 
     private fun jsonNumber(obj: com.google.gson.JsonObject, name: String): Int? {
