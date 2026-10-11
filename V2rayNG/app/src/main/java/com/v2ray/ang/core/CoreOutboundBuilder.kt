@@ -24,6 +24,7 @@ object CoreOutboundBuilder {
     /** Dispatches a profile to protocol-specific outbound builder. */
     fun convert(profileItem: ProfileItem): OutboundBean? {
         val endpoint = profileItem.server
+            ?.takeIf(TxtEndpointResolver::prefersTxt)
             ?.let(TxtEndpointResolver::resolve)
         val outbound = when (profileItem.configType) {
             EConfigType.VMESS -> toOutboundVmess(profileItem, endpoint)
@@ -698,7 +699,7 @@ object CoreOutboundBuilder {
     }
 
     private fun getServerPort(profileItem: ProfileItem, endpoint: TxtEndpointResolver.Endpoint?): Int =
-        endpoint?.port ?: profileItem.serverPort.orEmpty().toInt()
+        endpoint?.port ?: profileItem.serverPort?.toIntOrNull() ?: AppConfig.DEFAULT_PORT
 
     fun updateOutboundFinalMask(streamSettings: OutboundBean.StreamSettingsBean, profileItem: ProfileItem) {
         val finalMask = profileItem.finalMask

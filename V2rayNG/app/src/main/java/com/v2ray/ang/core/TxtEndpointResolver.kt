@@ -79,6 +79,15 @@ object TxtEndpointResolver {
         return endpoint
     }
 
+    /**
+     * TXT `IP:port` wins when present. Literal IPs and domains without a parseable
+     * TXT endpoint keep the profile address and port.
+     */
+    internal fun prefersTxt(host: String?): Boolean {
+        val value = host?.trim()?.removeSuffix(".")?.removeSurrounding("[", "]").orEmpty()
+        return value.isNotEmpty() && !isIpLiteral(value)
+    }
+
     internal fun formatEndpoint(endpoint: Endpoint): String =
         if (endpoint.address.contains(':')) "[${endpoint.address}]:${endpoint.port}"
         else "${endpoint.address}:${endpoint.port}"
@@ -198,6 +207,10 @@ object TxtEndpointResolver {
                 val (records, ttl) = queryUdpTxt(server, host)
                 val endpoints = parseEndpoints(records)
                 if (endpoints.isNotEmpty()) return endpoints to ttl
+                // A completed lookup with no parseable IP:port TXT is a negative
+                // answer: fall back to the profile address/port instead of waiting
+                // on every remaining resolver.
+                return emptyList<Endpoint>() to 0
             } catch (e: Exception) {
                 LogUtil.e(AppConfig.TAG, "TXT endpoint: UDP resolver failed", e)
             }
@@ -207,6 +220,7 @@ object TxtEndpointResolver {
                 val (records, ttl) = queryDohTxt(resolver, host)
                 val endpoints = parseEndpoints(records)
                 if (endpoints.isNotEmpty()) return endpoints to ttl
+                return emptyList<Endpoint>() to 0
             } catch (e: Exception) {
                 LogUtil.e(AppConfig.TAG, "TXT endpoint: DoH resolver failed", e)
             }

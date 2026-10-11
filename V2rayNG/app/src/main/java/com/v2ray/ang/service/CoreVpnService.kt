@@ -161,7 +161,7 @@ class CoreVpnService : VpnService(), ServiceControl {
     private fun prefetchTxtEndpoints() {
         val guid = MmkvManager.getSelectServer() ?: return
         val server = MmkvManager.decodeServerConfig(guid)?.server?.trim().orEmpty()
-        if (server.isNotEmpty()) {
+        if (TxtEndpointResolver.prefersTxt(server)) {
             TxtEndpointResolver.prefetch(server)
         }
     }

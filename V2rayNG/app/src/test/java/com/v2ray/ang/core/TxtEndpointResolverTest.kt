@@ -2,6 +2,7 @@ package com.v2ray.ang.core
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -87,6 +88,10 @@ class TxtEndpointResolverTest {
         assertNull(TxtEndpointResolver.parseCachedRecord(record, 1_700_000_060_000L))
         assertNull(TxtEndpointResolver.parseCachedRecord("222.116.129.80:12345", 1L))
         assertEquals(
+            emptyList<TxtEndpointResolver.Endpoint>(),
+            TxtEndpointResolver.parseEndpoints(listOf("v=spf1 -all", "google-site-verification=abc")),
+        )
+        assertEquals(
             setOf(
                 TxtEndpointResolver.Endpoint("222.116.129.80", 12345),
                 TxtEndpointResolver.Endpoint("222.111.210.67", 10000),
@@ -94,6 +99,11 @@ class TxtEndpointResolverTest {
             ),
             TxtEndpointResolver.parseEndpoints(records).toSet(),
         )
+        assertTrue(TxtEndpointResolver.prefersTxt("kr.270376.xyz"))
+        assertFalse(TxtEndpointResolver.prefersTxt("222.116.129.80"))
+        assertFalse(TxtEndpointResolver.prefersTxt("2001:db8::1"))
+        assertFalse(TxtEndpointResolver.prefersTxt("[2001:db8::1]"))
+        assertFalse(TxtEndpointResolver.prefersTxt(""))
     }
 
     private fun hexToBytes(hex: String): ByteArray {
